@@ -6,7 +6,8 @@ import os
 
 _data_folder_path = "../data"
 _company_info_file_name = "info.csv"
-_finance_report_file_name = "history.csv"
+_income_state_file_name = "income_statement.csv"
+_balance_sheet_file_name = "balance_sheet.csv"
 
 def get_current_dir():
     return os.path.dirname(os.path.realpath(__file__))
@@ -59,8 +60,14 @@ def output_company_info_to_csv(stock_id, df):
     print("save {}".format(file_path))
     return
 
-def output_finance_report_to_csv(stock_id, df):
-    file_path = get_file_path(stock_id, _finance_report_file_name)
+def output_income_state_to_csv(stock_id, df):
+    file_path = get_file_path(stock_id, _income_state_file_name)
+    df.to_csv(file_path)
+    print("save {}".format(file_path))
+    return
+
+def output_balance_sheet_to_csv(stock_id, df):
+    file_path = get_file_path(stock_id, _balance_sheet_file_name)
     df.to_csv(file_path)
     print("save {}".format(file_path))
     return

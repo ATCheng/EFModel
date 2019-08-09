@@ -2,16 +2,18 @@
 # -*- coding: utf-8 -*-
 
 import pandas as pd
+import numpy as np
 import requests as request
 
-import package.index as index
-from package.template import get_post_info_data
-from package.template import get_post_finance_data
+from package.index import get_company_info_url
+from package.index import get_finance_income_report_url
+from package.index import get_finance_balance_report_url
+from package.template import create_post_company_basic_data
+from package.template import create_post_company_data
 from package.template import create_info_df
-from package.template import create_finance_report_df
+from package.template import create_composite_income_df
 
 def read_company_info(stock_id, dfs):
-    
     for df in dfs:
         if df.empty:
             continue
@@ -24,104 +26,105 @@ def read_company_info(stock_id, dfs):
                 info = create_info_df(stock_id, company_type)
                 return info
 
-def read_finance_data(company_type_id, stock_id, dfs, year):
-    result = create_finance_report_df(company_type_id)
-    result.loc[0, '年度'] = year + 1911
+def create_year_dataframe(lables, year, values):
+    df = create_composite_income_df(year + 1911)
     
+    is_pre = False
+    pre_other_profit = 0
+    pre_other_loss = 0
+    for i in range(len(lables)):
+        if lables[i].find("營業收入") == 0 or lables[i].find("淨收益") == 0:
+            df.營業收入 = int(values[i])
+            print("營業收入: {}".format(int(values[i])))
+        elif lables[i].find("營業成本") == 0:
+            df.營業成本 = int(values[i])
+            print("營業成本: {}".format(int(values[i])))
+        elif lables[i].find("營業毛利") == 0:
+            df.營業毛利 = int(values[i])
+            print("營業毛利: {}".format(int(values[i])))
+        elif lables[i].find("營業費用") == 0:
+            df.營業費用 = int(values[i])
+            print("營業費用: {}".format(int(values[i])))
+        elif lables[i].find("營業利益") == 0 or lables[i].find("營業淨利") == 0:
+            df.營業利益 = int(values[i])
+            print("營業利益: {}".format(int(values[i])))
+        elif lables[i].find("營業外收入及支出") == 0:
+            df.業外收支 = int(values[i])
+            print("業外收支: {}".format(int(values[i])))
+        elif lables[i].find("稅前淨利") == 0 or lables[i].find("繼續營業單位稅前淨利") == 0 or lables[i].find("繼續營業單位稅前合併淨利") == 0 or lables[i].find("繼續營業單位稅前損益") == 0:
+            df.稅前淨利 = int(values[i])
+            print("稅前淨利: {}".format(int(values[i])))
+        elif lables[i].find("所得稅") == 0:
+            df.所得稅 = abs(int(values[i]))
+            print("所得稅: {}".format(abs(int(values[i]))))
+        elif lables[i].find("本期淨利") == 0 or lables[i].find("繼續營業單位淨利") == 0 or lables[i].find("繼續營業單位稅後合併淨利") == 0 or lables[i].find("本期稅後淨利") == 0:
+            df.本期淨利 = int(values[i])
+            print("本期淨利: {}".format(int(values[i])))
+        elif lables[i].find("本期綜合損益總額") == 0 or ((lables[i].find("合併總損益") == 0) and (lables[i].find("合併總損益歸屬予") == -1)):
+            df.本期綜合損益 = int(values[i])
+            print("本期綜合損益: {}".format(int(values[i])))
+        elif lables[i].find("淨利（淨損）歸屬於母公司業主") == 0:
+            df.業主淨利 = int(values[i])
+            print("業主淨利: {}".format(int(values[i])))
+        elif lables[i].find("母公司股東") == 0 and lables[i-1].find("合併總損益歸屬予") == 0:
+            df.業主淨利 = int(values[i])
+            print("業主淨利: {}".format(int(values[i])))
+        elif lables[i].find("基本每股盈餘") == 0:
+            df.基本每股盈餘 = values[i]
+            print("基本每股盈餘: {}".format(values[i]))
+        ### pre IFRSs
+        elif lables[i].find("營業外收入及利益") == 0:
+            is_pre = True
+            pre_other_profit = int(values[i])
+        elif lables[i].find("營業外費用及損失") == 0:
+            pre_other_loss = int(values[i])
+        else:
+            continue
+
+    if is_pre:
+        other = pre_other_profit - pre_other_loss
+        df.業外收支 = other
+        print("業外收支: {}".format(other))
+
+    if pd.isnull(df.loc[year+1911, "營業利益"]):
+        profit = df.loc[year+1911, "營業收入"] - df.loc[year+1911, "營業費用"]
+        df.營業利益 = profit
+        print("營業利益: {}".format(profit))
+    return df
+
+def read_finance_data(stock_id, dfs, year):
     for df in dfs:
         if df.empty:
             continue
 
-        for row in df.itertuples():
-            ####
-            # check finance report opinion
-            ####
-            if str(row[1]) == "合併財務報告-意見種類：":
-                opinion_type = row[1]
-                opinion_result = row[2]
-                print("{}{}".format(opinion_type, opinion_result))
+        columns = list(df.columns)
+        if "{}年".format(year) in columns or "{}年度".format(year) in columns:
+            data = create_year_dataframe(df[columns[0]].values, year, df[columns[3]].values)
+            return data
 
-            ####
-            # get finance income report items
-            ####
-            elif str(row[1]) == "營業收入":
-                total_income = row[2]
-                print("營業收入: {}".format(total_income))
-                result.loc[0, '營業收入'] = total_income
-            elif str(row[1]) == "營業成本":
-                cost = row[2]
-                print("營業成本: {}".format(cost))
-                result.loc[0, '營業成本'] = cost
-            elif str(row[1]) == "營業毛利（毛損）淨額":
-                gross = row[2]
-                print("營業毛利: {}".format(gross))
-                result.loc[0, '營業毛利'] = gross
-            elif str(row[1]) == "營業費用" == 0:
-                fee = row[2]
-                print("營業費用: {}".format(fee))   
-                result.loc[0, '營業費用'] = fee
-            elif str(row[1]) == "營業外收入及支出":
-                other = row[2]
-                print("營業外收入及支出: {}".format(other))  
-                result.loc[0, '業外收支'] = other
-            elif str(row[1]) == "稅前淨利（淨損）":
-                pre_tax_profit = row[2]
-                print("稅前淨利: {}".format(pre_tax_profit))    
-                result.loc[0, '稅前淨利'] = pre_tax_profit
-            elif str(row[1]) == "所得稅費用（利益）":
-                tax = row[2]
-                print("所得稅: {}".format(tax))     
-                result.loc[0, '所得稅'] = tax
-            elif str(row[1]) == "本期淨利（淨損）":
-                net_profit = row[2]
-                print("本期淨利: {}".format(net_profit))   
-                result.loc[0, '本期淨利'] = net_profit
-            elif str(row[1]) == "本期綜合損益總額":
-                total_profit = row[2]
-                print("本期綜合損益: {}".format(total_profit))  
-                result.loc[0, '本期綜合損益'] = total_profit
-            elif str(row[1]) == "淨利（淨損）歸屬於母公司業主":
-                shareholder_profit = row[2]
-                print("業主淨利: {}".format(shareholder_profit))   
-                result.loc[0, '業主淨利'] = shareholder_profit
-            elif str(row[1]) == "基本每股盈餘（元）":
-                eps = row[2]
-                print("基本每股盈餘: {}".format(eps))  
-                result.loc[0, '基本每股盈餘'] = eps
-            elif str(row[1]) == "權益總計":
-                total_interests = row[2]
-                print("權益總計: {}".format(total_interests))
-                result.loc[0, '權益總計'] = total_interests
-            elif str(row[1]) == "每股淨值（元）＝（權益－非控制權益）／（普通股股數＋特別股股數（權益項下）＋預收股款（權益項下）之約當發行股數－母公司暨子公司持有之母公司庫藏股股數－待註銷股本股數）":
-                net_value_per_share = row[2]
-                print("每股淨值（元）: {}".format(net_value_per_share))
-                result.loc[0, '每股淨值'] = net_value_per_share
-            elif str(row[1]) == "流動資產":
-                flow_assets = row[2]
-                print("流動資產: {}".format(flow_assets))
-                result.loc[0, '流動資產'] = flow_assets
-            elif str(row[1]) == "非流動資產":
-                non_flow_assets = row[2]
-                print("非流動資產: {}".format(non_flow_assets))
-                result.loc[0, '非流動資產'] = non_flow_assets
-            elif str(row[1]) == "流動負債":
-                flow_liabilities = row[2]
-                print("流動負債: {}".format(flow_liabilities))
-                result.loc[0, '流動負債'] = flow_liabilities
-            elif str(row[1]) == "非流動負債":
-                non_flow_liabilities = row[2]
-                print("非流動負債: {}".format(non_flow_liabilities))
-                result.loc[0, '非流動負債'] = non_flow_liabilities
-            elif str(row[1]) == "股本":
-                total_share_value = row[2]
-                print("股本: {}".format(total_share_value))
-                result.loc[0, '股本'] = total_share_value
-    return result
+def is_step2_needed(dfs):
+    step2_needed = False
+
+    for df in dfs:
+        if step2_needed:
+            break
+
+        if df.empty:
+            continue
+
+        columns = list(df.columns)
+        for column in columns:
+            if "公司代號" in columns and "公司名稱" in columns:
+                step2_needed = True
+                break
+
+    return step2_needed
                 
-def post_company_info(stock_id):
-    data = get_post_info_data(stock_id)
-    print("post {} company info: {}".format(stock_id, index._company_info_url))
-    response = request.post(index._company_info_url, data)
+def query_company_info(stock_id):
+    url = get_company_info_url()
+    data = create_post_company_basic_data(stock_id)
+    print("post {} company info url: {}".format(stock_id, url))
+    response = request.post(url, data)
     status = response.status_code
     print("status code: {}".format(status))
     if status != 200:
@@ -129,17 +132,32 @@ def post_company_info(stock_id):
     info = read_company_info(stock_id, pd.read_html(response.content))
     return info
 
-def post_company_finance_report(company_type_id, stock_id, year):
-    data = get_post_finance_data(company_type_id, stock_id, year)
-    print("post {} finance report: {}".format(stock_id, index._company_finance_report_url))
-    response = request.post(index._company_finance_report_url, data)
+def query_company_income_state(stock_id, year):
+    url = get_finance_income_report_url(year)
+    # step 1
+    data = create_post_company_data(stock_id, year, 1)
+    print("post {} finance report url: {}".format(stock_id, url))
+    response = request.post(url, data)
     status = response.status_code
     print("status code: {}".format(status))
     if status != 200:
         return
-    data = read_finance_data(company_type_id, stock_id, pd.read_html(response.content), year)
-    return data
+
+    dfs = pd.read_html(response.content)
+    if is_step2_needed(dfs):
+        # step 2
+        data = create_post_company_data(stock_id, year, 2)
+        print("post {} finance report url: {}".format(stock_id, url))
+        response = request.post(url, data)
+        status = response.status_code
+        print("status code: {}".format(status))
+        if status != 200:
+            return
+
+    dfs = pd.read_html(response.content)
+    results = read_finance_data(stock_id, dfs, year)
+    return results
     
 if __name__ == "__main__":
-    post_company_info(2382)
+    query_company_info(2382)
     

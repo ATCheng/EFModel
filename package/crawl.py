@@ -5,13 +5,14 @@ import sys
 import pandas as pd
 from datetime import date
 
-import package.index as index
+from package.index import get_history_ref_year_index
 from package.file import create_folder
+from package.query import query_company_info
+from package.query import query_company_income_state
 from package.file import get_company_info_file_path
 from package.file import output_company_info_to_csv
-from package.file import output_finance_report_to_csv
-from package.query import post_company_info
-from package.query import post_company_finance_report
+from package.file import output_income_state_to_csv
+from package.file import output_balance_sheet_to_csv
 from package.template import get_finance_template_type_id
 
 
@@ -20,37 +21,34 @@ def get_company_type_id(stock_id):
     return get_finance_template_type_id(df.產業類別[0])
     
 def crawl_company_info(stock_id):
-    info = post_company_info(stock_id)
+    print("crawl company information...")
+    info = query_company_info(stock_id)
     output_company_info_to_csv(stock_id, info)
-    return
 
-def crawl_company_finance_report(stock_id):
+def crawl_company_income_state(stock_id):
     # get history year index
     this_year = date.today().year - 1911
-    years = list(range(this_year-index._ref_year_index, this_year))
+    years = list(range(this_year - get_history_ref_year_index(), this_year))
     print("crawl {} yearly history data: {}".format(stock_id, years))
-    
-    # get company type id
-    type_id = get_company_type_id(stock_id)
     
     dfs = list()
     for year in years:
-        if type_id == 0:
-            data = post_company_finance_report(0, stock_id, year)
-        elif type_id == 1:
-            data = post_company_finance_report(1, stock_id, year)
-        else:
-            print("warn: invalid company type id {}".format(type_id))
+        print("crawl {} composite income report...".format(year))
+        data = query_company_income_state(stock_id, year)
         dfs.append(data)
 
-    output_finance_report_to_csv(stock_id, pd.concat(dfs))
+    output_income_state_to_csv(stock_id, pd.concat(dfs, ignore_index=False, sort=False))
+
+def crawl_company_balance_sheet(stock_id):
+    #output_balance_sheet_to_csv(stock_id, )
     return
 
 def crawl_finance_data(stock_id):
     create_folder(stock_id)
     print("start crawling {} data...".format(stock_id))
     crawl_company_info(stock_id)
-    crawl_company_finance_report(stock_id)
+    crawl_company_income_state(stock_id)
+    crawl_company_balance_sheet(stock_id)
 
 if __name__ == "__main__":
     if len(sys.argv) == 2:
